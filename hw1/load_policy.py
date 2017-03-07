@@ -50,9 +50,11 @@ def load_policy(filename):
         # Output layer
         W, b = read_layer(policy_params['out'])
         output_bo = tf.matmul(curr_activations_bd, W) + b
+	tf.add_to_collection(name="output", value=output_bo)
         return output_bo
 
     obs_bo = tf.placeholder(tf.float32, [None, None])
+    tf.add_to_collection(name="input", value=obs_bo)
     a_ba = build_policy(obs_bo)
     policy_fn = tf_util.function([obs_bo], a_ba)
     return policy_fn

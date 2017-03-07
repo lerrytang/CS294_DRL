@@ -15,6 +15,8 @@ import numpy as np
 import tf_util
 import gym
 import load_policy
+from hw1_sol import HW1_sol
+
 
 def main():
     import argparse
@@ -25,6 +27,16 @@ def main():
     parser.add_argument("--max_timesteps", type=int)
     parser.add_argument('--num_rollouts', type=int, default=20,
                         help='Number of expert roll outs')
+    ### added for hw1
+    parser.add_argument("--clone_expert", action="store_true")
+    parser.add_argument("--max_iter", type=int, default=100000,
+			help="Number of training iterations")
+    parser.add_argument("--init_lr", type=float, default=0.002,
+			help="Initial learning rate")
+    parser.add_argument("--reg_coef", type=float, default=0.0,
+			help="Coefficient for L2 regularization")
+    parser.add_argument("--logdir", type=str, default="log")
+    ###
     args = parser.parse_args()
 
     print('loading and building expert policy')
@@ -67,6 +79,21 @@ def main():
 
         expert_data = {'observations': np.array(observations),
                        'actions': np.array(actions)}
+
+	### added for hw1
+	if args.clone_expert:
+            logdir = args.logdir
+            logdir += "/" + args.envname + "_" + str(args.max_iter) + "_" + str(args.init_lr) + "_" + str(args.reg_coef)
+            hw1_sol = HW1_sol(logdir, args.max_iter, args.init_lr, args.reg_coef)
+            hw1_sol.clone_behavior(args.expert_policy_file,
+                                   expert_data["observations"],
+                                   expert_data["actions"])
+            hw1_sol.test(env, args.num_rollouts, max_steps, args.render)
+
+            print('[expert] mean return', np.mean(returns))
+            print('[expert] std of return', np.std(returns))
+	###
+
 
 if __name__ == '__main__':
     main()
