@@ -83,7 +83,9 @@ def main():
 	### added for hw1
 	if args.clone_expert:
             logdir = args.logdir
-            logdir += "/" + args.envname + "_" + str(args.max_iter) + "_" + str(args.init_lr) + "_" + str(args.reg_coef)
+            logdir += "/" + args.envname + "_" + str(args.num_rollouts) + "_" +\
+                        str(args.max_iter) + "_" + str(args.init_lr) + "_" +\
+                        str(args.reg_coef)
             hw1_sol = HW1_sol(logdir, args.max_iter, args.init_lr, args.reg_coef)
             hw1_sol.clone_behavior(args.expert_policy_file,
                                    expert_data["observations"],
