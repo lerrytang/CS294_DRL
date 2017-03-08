@@ -6,25 +6,42 @@ import pickle
 
 class HW1_sol:
 
-    def __init__(self, logdir, max_iter, init_lr, reg_coef):
+    def __init__(self, filename, logdir, train_epoch, init_lr, reg_coef, name="BC"):
         self._logdir = logdir
-        self._max_iter = max_iter
+        self._train_epoch = train_epoch
         self._init_lr = init_lr
         self._reg_coef = reg_coef
+        self._name = name
 
         self.obs = None
         self.est_act = None
         self.exp_act = None
+        self.writer = None
 
-    def clone_behavior(self, filename, obs_data, act_data):
-        # copy network structure
-        self.obs, self.est_act = self._build_network(filename)
-        # add L2 loss
-        self.loss = self._add_loss()
-        # add optimizer
-        self.train_op = tf.train.AdamOptimizer(learning_rate=self._init_lr).minimize(self.loss)
+        self.summary_tensors = []
+
+        with tf.variable_scope(self._name):
+            # copy network structure
+            self._build_network(filename)
+            # add L2 loss
+            self._add_loss()
+
+        net_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self._name)
+        with tf.variable_scope(self._name + "_Adam"):
+            # add optimizer
+            opt = tf.train.AdamOptimizer(learning_rate=self._init_lr, name=self._name + "_optimizer")
+            self.train_op = opt.minimize(self.loss, var_list=net_vars)
+
+        opt_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self._name + "_Adam")
+        all_vars = net_vars + opt_vars
+        with tf.variable_scope(self._name + "_init"):
+            self.init_op = tf.variables_initializer(all_vars)
+            # add summary
+        self.merged = tf.summary.merge(self.summary_tensors)
+
+    def clone_behavior(self, obs_data, act_data):
         # initialize all variables
-        tf_util.initialize()
+        tf_util.get_session().run(self.init_op)
         # training
         self.train(obs_data, act_data)
     
@@ -43,8 +60,7 @@ class HW1_sol:
                 assert list(l.keys()) == ['AffineLayer']
                 assert sorted(l['AffineLayer'].keys()) == ['W', 'b']
                 return tf.layers.dense(inputs=x,
-                                       units=l["AffineLayer"]["W"].shape[1],
-                                       kernel_regularizer=lambda x: tf_util.l2loss([x]))
+                                       units=l["AffineLayer"]["W"].shape[1])
                 
             def apply_nonlin(x):
                 if nonlin_type == 'lrelu':
@@ -75,47 +91,45 @@ class HW1_sol:
             output_bo = read_layer(policy_params['out'], curr_activations_bd)
             return output_bo
     
-        obs_bo = tf.placeholder(tf.float32, [None, None])
-        a_ba = build_policy(obs_bo)
-        return obs_bo, a_ba
+        self.obs = tf.placeholder(tf.float32, [None, None], name="obs")
+        self.est_act = build_policy(self.obs)
     
     def _add_loss(self):
-        self.exp_act = tf.placeholder(tf.float32, self.est_act.get_shape().as_list())
-        loss = tf.reduce_mean(tf.reduce_sum(tf.square([self.est_act - self.exp_act]), axis=1))
-        reg_loss = sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-        total_loss = loss + self._reg_coef * reg_loss
-        tf.summary.scalar("loss/Regress loss", loss)
-        tf.summary.scalar("loss/Regularization loss", reg_loss)
-        tf.summary.scalar("loss/Total loss", total_loss)
-        return total_loss
+        self.exp_act = tf.placeholder(tf.float32, self.est_act.get_shape().as_list(), name="exp_act")
+        self.loss = tf.reduce_mean(tf.reduce_sum(tf.square([self.est_act - self.exp_act]), axis=1))
+        self.summary_tensors.append(tf.summary.scalar("loss/Regress loss", self.loss))
     
     def train(self, obs_data, act_data, batch_size=64):
-        merged = tf.summary.merge_all()
-        writer = tf.summary.FileWriter(self._logdir, tf_util.get_session().graph)
     
+        print("obs_data.shape:", obs_data.shape)
+        print("act_data.shape:", act_data.shape)
         n_total = obs_data.shape[0]
         assert n_total == act_data.shape[0], "Sizes do not match ({}vs{})".format(n_total, act_data.shape[0])
         print("training data size = {}".format(n_total))
-        n_iter = 0
-        while n_iter < self._max_iter:
-            rand_idx = np.random.choice(n_total, size=batch_size, replace=False)
-            obs_batch = obs_data[rand_idx]
-            act_batch = act_data[rand_idx]
-            train_loss, summary, _ = tf_util.get_session().run([self.loss,
-                                                                merged,
-                                                                self.train_op],
-                    feed_dict={self.obs: obs_batch, self.exp_act: act_batch.squeeze()})
-            n_iter += 1
-            if n_iter % 500 == 0:
-                print("{0}/{1} loss={2:.4f}".format(n_iter, self._max_iter, train_loss))
-                writer.add_summary(summary, global_step=n_iter-1)
+        iter_per_epoch = int(np.ceil(1.0 * self._train_epoch * n_total / batch_size))
+        print("iter_per_epoch = {}".format(iter_per_epoch))
+        n_epoch = 0
+        while n_epoch < self._train_epoch:
+            n_iter = 0
+            while n_iter < iter_per_epoch:
+                rand_idx = np.random.choice(n_total, size=batch_size, replace=False if batch_size<n_total else True)
+                obs_batch = obs_data[rand_idx]
+                act_batch = act_data[rand_idx]
+                train_loss, summary, _ = tf_util.get_session().run([self.loss,
+                                                                    self.merged,
+                                                                    self.train_op],
+                        feed_dict={self.obs: obs_batch, self.exp_act: act_batch.squeeze()})
+
+                n_iter += 1
+            n_epoch += 1
+            print("epoch={0}/{1} loss={2:.4f}".format(n_epoch, self._train_epoch, train_loss))
+            if self.writer is not None:
+                self.writer.add_summary(summary, global_step=n_epoch)
     
     def test(self, env, num_rollouts, max_steps, render=False):
         returns = []
         observations = []
-        actions = []
         for i in range(num_rollouts):
-            print('iter', i)
             obs = env.reset()
             done = False
             totalr = 0.
@@ -124,18 +138,18 @@ class HW1_sol:
                 action = tf_util.get_session().run(self.est_act,
                                             feed_dict={self.obs: (obs[None,:])})
                 observations.append(obs)
-                actions.append(action)
                 obs, r, done, _ = env.step(action)
                 totalr += r
                 steps += 1
                 if render:
                     env.render()
-                if steps % 100 == 0: print("%i/%i"%(steps, max_steps))
                 if steps >= max_steps:
                     break
             returns.append(totalr)
     
-        print('[immitation] mean return', np.mean(returns))
-        print('[immitation] std of return', np.std(returns))
+        print('[{0}] mean return: {1:.2f}'.format(self._name, np.mean(returns)))
+        print('[{0}] std of return: {1:.2f}'.format(self._name, np.std(returns)))
+
+        return observations
 
 
