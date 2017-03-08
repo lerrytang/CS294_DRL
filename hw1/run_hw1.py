@@ -100,7 +100,7 @@ def main():
             bc.clone_behavior(expert_data["observations"],
                               expert_data["actions"])
             bc.test(env, args.num_rollouts, max_steps, args.render)
-            expert_test(env, args.num_rollouts, policy_fun, max_steps, args.render)
+            expert_test(env, args.num_rollouts, policy_fn, max_steps, args.render)
 
         if args.dagger:
             logdir = args.logdir
