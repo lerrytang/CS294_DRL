@@ -12,7 +12,7 @@ For each environment, 5 trials were conducted with different number of rollouts.
 The common settings across environments are 
 1. network architecture (identical to that of experts)
 2. number of training epoches (=10)
-3. optimization algorithm (=Adam) and initial learning rate (=0.02)
+3. optimization algorithm (=Adam) and initial learning rate (=0.002)
 
 #### Ant-v1
 
